@@ -12,7 +12,7 @@ image_h = 28
 image_w = 28
 
 try:
-    raise FileNotFoundError
+    #raise FileNotFoundError
     # open MNIST data if we can
     with open('pixels.pkl', 'rb') as f:
         real_data = pickle.load(f)
@@ -21,13 +21,11 @@ except FileNotFoundError as e:
     # download MNIST data from web
     mnist = datasets.MNIST(root='./data', train=True, download=True, transform=None)
 
-    print(mnist[0])
-    print(mnist[1])
-    print(mnist[2])
-
     # convert image to 1-D pixel data
     real_data = []
     for idx, (im, label) in enumerate(mnist):
+        if idx % (len(mnist) / 10) == 0:
+            print(int(idx / len(mnist) * 100), "%")
         if label != 3:
             continue
         temp = list(im.getdata())
@@ -35,18 +33,11 @@ except FileNotFoundError as e:
         temp = [temp[i * w:(i + 1) * w] for i in range(h)]
         temp = [x for sublist in temp for x in sublist]
         temp = [x / 256.0 for x in temp]
-        real_data.append((torch.Tensor(temp), 1.0))
-
-        if idx % (len(mnist) / 10) == 0:
-            print(int(idx / len(mnist) * 100), "%")
+        real_data.append((temp, [1.0]))
 
     # write to file
     with open('pixels.pkl', 'wb') as f:
         pickle.dump(real_data, f)
-
-# function that returns random noise (0 ~ 1)
-def Z():
-    return torch.rand(image_h * image_w)
 
 # number of data
 N = len(real_data)
@@ -58,6 +49,7 @@ G = nn.Sequential(
     nn.Linear(image_h * image_w, H),
     nn.ReLU(),
     nn.Linear(H, image_h * image_w),
+    nn.Sigmoid(),
 )
 
 # define Discriminator
@@ -71,51 +63,46 @@ D = nn.Sequential(
 # loss function (Mean Squared Error)
 loss_fn = nn.MSELoss(size_average=False)
 
-# SGD optimizer
-optimizer = optim.SGD(D.parameters(), lr=1e-4, momentum=0.5)
-
 # number of iterations
 iteration = 100
+learning_rate = 0.0001
 
 for _ in range(iteration):
 
+    # function that returns random noise (0 ~ 1)
+    def Z():
+        return torch.rand(image_h * image_w)
+
     # create fake data
     fake_data = []
+
     for _ in range(N):
-        fake_data.append((G(Z()), 0.0))
+        fake_data.append((G(Z()).tolist(), [0.0]))
 
     # combine real data and fake data
     combined_data = real_data + fake_data
 
-    #print(real_data[0])
-    #print(fake_data[-1])
-
-    # split data
-    train_loader = torch.utils.data.DataLoader(combined_data, batch_size=50, shuffle=True, num_workers=2)
-    print(train_loader[0])
-
-    optimizer.zero_grad()
-
     # number of k (train D for k times in a row)
     k = 10
     for d_idx in range(k):
-        for idx, data in enumerate(train_loader):
 
-            train_data, train_label = data
+        train_data = torch.Tensor([x[0] for x in combined_data])
+        train_label = torch.Tensor([x[1] for x in combined_data])
 
-            optimizer.zero_grad()
+        # compute predicted Y
+        D_pred = D(train_data)
 
-            print(train_label)
-            # compute predicted Y
-            D_pred = D(train_data)
+        # compute loss
+        loss = loss_fn(D_pred, train_label)
+        print(d_idx, loss.item())
 
-            # compute loss
-            loss = loss_fn(D_pred, train_label)
-            print(d_idx, loss.item())
+        D.zero_grad()
 
-            loss.backward()
+        loss.backward()
 
-            optimizer.step()
+        with torch.no_grad():
+            for param in D.parameters():
+                param -= learning_rate * param.grad
 
     #train G
     pass
