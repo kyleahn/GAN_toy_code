@@ -14,14 +14,17 @@ image_w = 28
 try:
     #raise FileNotFoundError
     # open MNIST data if we can
+    print('Finding MNIST data in local...')
     with open('pixels.pkl', 'rb') as f:
         real_data = pickle.load(f)
 
 except FileNotFoundError as e:
     # download MNIST data from web
+    print('Download data from web...')
     mnist = datasets.MNIST(root='./data', train=True, download=True, transform=None)
 
     # convert image to 1-D pixel data
+    print('Convert PIL image to 1-Dim list...')
     real_data = []
     for idx, (im, label) in enumerate(mnist):
         if idx % (len(mnist) / 10) == 0:
@@ -36,6 +39,7 @@ except FileNotFoundError as e:
         real_data.append((temp, [1.0]))
 
     # write to file
+    print('Save data to local...')
     with open('pixels.pkl', 'wb') as f:
         pickle.dump(real_data, f)
 
@@ -45,6 +49,7 @@ N = len(real_data)
 H = 1000
 
 # define Generator
+print('Declare G...')
 G = nn.Sequential(
     nn.Linear(image_h * image_w, H),
     nn.ReLU(),
@@ -53,6 +58,7 @@ G = nn.Sequential(
 )
 
 # define Discriminator
+print('Declare D...')
 D = nn.Sequential(
     nn.Linear(image_h * image_w, H),
     nn.ReLU(),
@@ -61,19 +67,24 @@ D = nn.Sequential(
 )
 
 # loss function (Mean Squared Error)
+print('Declare Loss function...')
 loss_fn = nn.MSELoss(size_average=False)
 
 # number of iterations
 iteration = 100
 learning_rate = 0.0001
 
-for _ in range(iteration):
+print('Training Start...')
+for idx in range(iteration):
+
+    print('@ Iteration', idx)
 
     # function that returns random noise (0 ~ 1)
     def Z():
         return torch.rand(image_h * image_w)
 
     # create fake data
+    print('Creating fake data...')
     fake_data = []
 
     for _ in range(N):
@@ -85,24 +96,27 @@ for _ in range(iteration):
     # number of k (train D for k times in a row)
     k = 10
     for d_idx in range(k):
-
+        print('@@ Iteration(D)', d_idx)
         train_data = torch.Tensor([x[0] for x in combined_data])
         train_label = torch.Tensor([x[1] for x in combined_data])
 
         # compute predicted Y
+        print('Computing Y...')
         D_pred = D(train_data)
 
         # compute loss
+        print('Computing loss...')
         loss = loss_fn(D_pred, train_label)
-        print(d_idx, loss.item())
+        print('loss =', loss.item())
 
         D.zero_grad()
 
+        print('Updating gradient...')
         loss.backward()
 
         with torch.no_grad():
             for param in D.parameters():
                 param -= learning_rate * param.grad
-
+        print('\n')
     #train G
     pass
