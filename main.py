@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torch.autograd import Variable
 import torchvision.datasets as datasets
 
@@ -73,17 +74,14 @@ print('Declare Loss function...')
 loss_fn = nn.BCELoss()
 
 # number of iterations
-iteration = 100
+iteration = 1000
+learning_rate = 0.002
+
+D_optimizer = optim.SGD(D.parameters(), lr=learning_rate)
+G_optimizer = optim.SGD(G.parameters(), lr=learning_rate)
 
 print('Training Start...')
 for idx in range(iteration):
-
-    if idx < iteration/2:
-        learning_rate = 0.01
-    elif idx < iteration/4:
-        learning_rate = 0.005
-    else:
-        learning_rate = 0.001
 
     print('@ Iteration', idx)
 
@@ -91,68 +89,89 @@ for idx in range(iteration):
     def Z():
         return torch.rand(image_h * image_w)
 
-    # number of k (train D for k times in a row)
-    k = 5
-    for d_idx in range(k):
-        print('@@ Iteration(D)', d_idx)
-
-        # create fake data
-        print('Creating fake data...')
-        fake_data = []
-
-        for _ in range(N):
-            fake_data.append((G(Z()).tolist(), [0.0]))
-
-        # combine real data and fake data
-        combined_data = real_data + fake_data
-
-        train_data = torch.Tensor([x[0] for x in combined_data])
-        train_label = torch.Tensor([x[1] for x in combined_data])
-
-        # compute predicted Y
-        print('Computing Y...')
-        D_pred = D(train_data)
-
-        # compute loss (lower is better for D)
-        print('Computing loss...')
-        loss = loss_fn(D_pred, train_label)
-        print('loss =', loss.item())
-
-        D.zero_grad()
-
-        print('Updating gradient...')
-        loss.backward()
-
-        for param in D.parameters():
-            param -= learning_rate * param.grad
-        print('\n')
-
-    print('@@ Train G')
-
     # create fake data
     print('Creating fake data...')
     fake_data = []
 
     for _ in range(N):
+        fake_data.append((G(Z()).tolist(), [0.0]))
+
+    # combine real data and fake data
+    combined_data = real_data + fake_data
+
+    # number of k (train D for k times in a row)
+    k = 10
+    # number of element in each dataset
+    m = 64
+    D_data_loader = DataLoader(combined_data, batch_size = m, shuffle = True, num_workers = 0)
+
+    for d_idx, (train_data, train_label) in enumerate(D_data_loader):
+        if k <= d_idx:
+            break
+
+        # list of tensor to 2-D tensor
+        train_data = torch.stack(train_data)
+        train_label = torch.stack(train_label)
+
+        # convert axis
+        train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
+        train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
+
+        print('@@ Iteration(D)', d_idx)
+
+        D_optimizer.zero_grad()
+
+        # compute predicted Y
+        print('Computing Y...')
+        D_pred = D(train_data.float())
+
+        # compute loss (lower is better for D)
+        print('Computing loss...')
+        loss = loss_fn(D_pred, train_label.float())
+        print('loss =', loss.item())
+
+        print('Updating gradient...')
+        loss.backward()
+
+        D_optimizer.step()
+
+    # create fake data
+    print('Creating fake data...')
+    fake_data = []
+
+    for _ in range(m):
         fake_data.append((G(Z()).tolist(), [1.0]))
 
-    train_data = torch.Tensor([x[0] for x in fake_data])
-    train_label = torch.Tensor([x[1] for x in fake_data])
+    G_data_loader = DataLoader(fake_data, batch_size=m, shuffle=False, num_workers=0)
 
-    # compute predicted Y
-    print('Computing Y...')
-    D_pred = D(train_data)
+    for g_idx, (train_data, train_label) in enumerate(G_data_loader):
+        if 1 <= g_idx:
+            break
 
-    # compute loss (higher is better for G)
-    print('Computing loss...')
-    loss = loss_fn(D_pred, train_label)
-    print('loss =', loss.item())
+        # list of tensor to 2-D tensor
+        train_data = torch.stack(train_data)
+        train_label = torch.stack(train_label)
 
-    G.zero_grad()
+        # convert axis
+        train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
+        train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
 
-    print('Updating gradient...')
-    loss.backward()
+        print('@@ Iteration(G)', g_idx)
 
-    for param in G.parameters():
-        param -= learning_rate * param.grad
-    print('\n')
+        G_optimizer.zero_grad()
+
+        # compute predicted Y
+        print('Computing Y...')
+        G_pred = D(train_data.float())
+
+        # compute loss (higher is better for G)
+        print('Computing loss...')
+        loss = loss_fn(G_pred, train_label.float())
+        print('loss =', loss.item())
+
+        print('Updating gradient...')
+        loss.backward()
+
+        G_optimizer.step()
+
+        print('\n')
