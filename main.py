@@ -68,14 +68,22 @@ D = nn.Sequential(
 
 # loss function (Mean Squared Error)
 print('Declare Loss function...')
-loss_fn = nn.MSELoss(size_average=False)
+
+# declare loss function (V)
+loss_fn = nn.BCELoss()
 
 # number of iterations
 iteration = 100
-learning_rate = 0.0001
 
 print('Training Start...')
 for idx in range(iteration):
+
+    if idx < iteration/2:
+        learning_rate = 0.01
+    elif idx < iteration/4:
+        learning_rate = 0.005
+    else:
+        learning_rate = 0.001
 
     print('@ Iteration', idx)
 
@@ -118,5 +126,4 @@ for idx in range(iteration):
             for param in D.parameters():
                 param -= learning_rate * param.grad
         print('\n')
-    #train G
-    pass
+    print('@@ Train G')
