@@ -91,20 +91,21 @@ for idx in range(iteration):
     def Z():
         return torch.rand(image_h * image_w)
 
-    # create fake data
-    print('Creating fake data...')
-    fake_data = []
-
-    for _ in range(N):
-        fake_data.append((G(Z()).tolist(), [0.0]))
-
-    # combine real data and fake data
-    combined_data = real_data + fake_data
-
     # number of k (train D for k times in a row)
-    k = 10
+    k = 5
     for d_idx in range(k):
         print('@@ Iteration(D)', d_idx)
+
+        # create fake data
+        print('Creating fake data...')
+        fake_data = []
+
+        for _ in range(N):
+            fake_data.append((G(Z()).tolist(), [0.0]))
+
+        # combine real data and fake data
+        combined_data = real_data + fake_data
+
         train_data = torch.Tensor([x[0] for x in combined_data])
         train_label = torch.Tensor([x[1] for x in combined_data])
 
@@ -112,7 +113,7 @@ for idx in range(iteration):
         print('Computing Y...')
         D_pred = D(train_data)
 
-        # compute loss
+        # compute loss (lower is better for D)
         print('Computing loss...')
         loss = loss_fn(D_pred, train_label)
         print('loss =', loss.item())
@@ -122,8 +123,36 @@ for idx in range(iteration):
         print('Updating gradient...')
         loss.backward()
 
-        with torch.no_grad():
-            for param in D.parameters():
-                param -= learning_rate * param.grad
+        for param in D.parameters():
+            param -= learning_rate * param.grad
         print('\n')
+
     print('@@ Train G')
+
+    # create fake data
+    print('Creating fake data...')
+    fake_data = []
+
+    for _ in range(N):
+        fake_data.append((G(Z()).tolist(), [1.0]))
+
+    train_data = torch.Tensor([x[0] for x in fake_data])
+    train_label = torch.Tensor([x[1] for x in fake_data])
+
+    # compute predicted Y
+    print('Computing Y...')
+    D_pred = D(train_data)
+
+    # compute loss (higher is better for G)
+    print('Computing loss...')
+    loss = loss_fn(D_pred, train_label)
+    print('loss =', loss.item())
+
+    G.zero_grad()
+
+    print('Updating gradient...')
+    loss.backward()
+
+    for param in G.parameters():
+        param -= learning_rate * param.grad
+    print('\n')
