@@ -1,5 +1,7 @@
 import pickle
+import os
 import numpy as np
+from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +9,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 import torchvision.datasets as datasets
+
+#######################################################
+#                    Preprocessing                    #
+#######################################################
 
 # dimension of image (in this case, 28 & 28)
 image_h = 28
@@ -36,13 +42,18 @@ except FileNotFoundError as e:
         w, h = im.size
         temp = [temp[i * w:(i + 1) * w] for i in range(h)]
         temp = [x for sublist in temp for x in sublist]
-        temp = [x / 256.0 for x in temp]
+        temp = [x / 255.0 for x in temp]
         real_data.append((temp, [1.0]))
 
     # write to file
     print('Save data to local...')
     with open('pixels.pkl', 'wb') as f:
         pickle.dump(real_data, f)
+
+
+#######################################################
+#                Variable declaration                 #
+#######################################################
 
 # number of data
 N = len(real_data)
@@ -79,6 +90,13 @@ learning_rate = 0.002
 
 D_optimizer = optim.SGD(D.parameters(), lr=learning_rate)
 G_optimizer = optim.SGD(G.parameters(), lr=learning_rate)
+
+#######################################################
+#                      Training                       #
+#######################################################
+
+if not os.path.exists('output/'):
+    os.makedirs('output/')
 
 print('Training Start...')
 for idx in range(iteration):
@@ -127,13 +145,15 @@ for idx in range(iteration):
 
         # compute loss (lower is better for D)
         print('Computing loss...')
-        loss = loss_fn(D_pred, train_label.float())
-        print('loss =', loss.item())
+        D_loss = loss_fn(D_pred, train_label.float())
+        print('loss =', D_loss.item())
 
         print('Updating gradient...')
-        loss.backward()
+        D_loss.backward()
 
         D_optimizer.step()
+
+        D_optimizer.zero_grad()
 
     # create fake data
     print('Creating fake data...')
@@ -144,34 +164,42 @@ for idx in range(iteration):
 
     G_data_loader = DataLoader(fake_data, batch_size=m, shuffle=False, num_workers=0)
 
-    for g_idx, (train_data, train_label) in enumerate(G_data_loader):
-        if 1 <= g_idx:
-            break
+    (train_data, train_label) = next(iter(G_data_loader))
 
-        # list of tensor to 2-D tensor
-        train_data = torch.stack(train_data)
-        train_label = torch.stack(train_label)
+    # list of tensor to 2-D tensor
+    train_data = torch.stack(train_data)
+    train_label = torch.stack(train_label)
 
-        # convert axis
-        train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
-        train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
+    # convert axis
+    train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
+    train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
 
-        print('@@ Iteration(G)', g_idx)
+    print('@@ Iteration(G)')
 
-        G_optimizer.zero_grad()
+    #for param in G.parameters():
+    #    print(param)
 
-        # compute predicted Y
-        print('Computing Y...')
-        G_pred = D(train_data.float())
+    G_optimizer.zero_grad()
 
-        # compute loss (higher is better for G)
-        print('Computing loss...')
-        loss = loss_fn(G_pred, train_label.float())
-        print('loss =', loss.item())
+    # compute predicted Y
+    print('Computing Y...')
+    G_pred = D(train_data.float())
 
-        print('Updating gradient...')
-        loss.backward()
+    # compute loss (higher is better for G)
+    print('Computing loss...')
+    G_loss = loss_fn(G_pred, train_label.float())
 
-        G_optimizer.step()
+    print('loss =', G_loss.item())
 
-        print('\n')
+    print('Updating gradient...')
+    G_loss.backward()
+
+    G_optimizer.step()
+
+    G_optimizer.zero_grad()
+
+    print_img = Image.new('L', (image_w, image_h))
+    print_img.putdata(G(Z()).detach().numpy()*255)
+    print_img.save('output/G_'+str(idx).zfill(4)+'.png')
+
+    print('\n')
