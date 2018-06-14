@@ -43,7 +43,7 @@ except FileNotFoundError as e:
         temp = [temp[i * w:(i + 1) * w] for i in range(h)]
         temp = [x for sublist in temp for x in sublist]
         temp = [x / 255.0 for x in temp]
-        real_data.append((temp, [1.0]))
+        real_data.append(temp)
 
     # write to file
     print('Save data to local...')
@@ -107,55 +107,54 @@ for idx in range(iteration):
     def Z():
         return torch.rand(image_h * image_w)
 
+
+    # number of k (train D for k times in a row)
+    k = 5
+    # number of element in each dataset
+    m = 64
+
     # create fake data
     print('Creating fake data...')
     fake_data = []
 
-    for _ in range(N):
-        fake_data.append((G(Z()).tolist(), [0.0]))
+    for _ in range(k * m):
+        fake_data.append(G(Z()).tolist())
 
-    # combine real data and fake data
-    combined_data = real_data + fake_data
+    real_data_loader = DataLoader(real_data, batch_size = m, shuffle = False, num_workers = 0)
+    fake_data_loader = DataLoader(fake_data, batch_size = m, shuffle = False, num_workers = 0)
 
-    # number of k (train D for k times in a row)
-    k = 10
-    # number of element in each dataset
-    m = 64
-    D_data_loader = DataLoader(combined_data, batch_size = m, shuffle = True, num_workers = 0)
-
-    def preprocess(data, label):
+    def preprocess(data):
         # list of tensor to 2-D tensor
         data = torch.stack(data)
-        label = torch.stack(label)
         # convert axis
-        data = torch.from_numpy(np.swapaxes(data.numpy(), 0, 1).copy())
-        label = torch.from_numpy(np.swapaxes(label.numpy(), 0, 1).copy())
-        return data, label
+        return data.t()
 
     #######################################################
     #                      Train D                        #
     #######################################################
 
-    for d_idx, (train_data, train_label) in enumerate(D_data_loader):
-        if k <= d_idx:
-            break
-
-        train_data, train_label = preprocess(train_data, train_label)
-
-        print('@@ Iteration(D)', d_idx)
+    for d_idx in range(k):
+        # train with REAL data
+        train_data = next(iter(real_data_loader))
+        train_data = preprocess(train_data)
 
         D_optimizer.zero_grad()
-
-        # compute predicted Y
-        print('Computing Y...')
         D_pred = D(train_data.float())
-
-        # compute loss (lower is better for D)
-        print('Computing loss...')
-        D_loss = loss_fn(D_pred, train_label.float())
+        D_loss = loss_fn(D_pred, torch.Tensor([[1.0]]*m))
         print('loss =', D_loss.item())
 
-        print('Updating gradient...')
+        D_loss.backward()
+        D_optimizer.step()
+
+        # train with FAKE data
+        train_data = next(iter(fake_data_loader))
+        train_data = preprocess(train_data)
+
+        D_optimizer.zero_grad()
+        D_pred = D(train_data.float().detach())
+        D_loss = loss_fn(D_pred, torch.Tensor([[0.0]]*m))
+        print('loss =', D_loss.item())
+
         D_loss.backward()
         D_optimizer.step()
 
@@ -163,44 +162,33 @@ for idx in range(iteration):
     #                      Train G                        #
     #######################################################
 
-    # create fake data
-    print('Creating fake data...')
-    fake_data = []
+    fake_data_loader = DataLoader(fake_data, batch_size = m, shuffle = False, num_workers = 0)
 
-    for _ in range(m):
-        fake_data.append((G(Z()).tolist(), [1.0]))
+    # train with FAKE data
+    train_data = next(iter(fake_data_loader))
+    train_data = preprocess(train_data)
 
-    G_data_loader = DataLoader(fake_data, batch_size=m, shuffle=False, num_workers=0)
+    G_optimizer.zero_grad()
+    G_pred = D(train_data.float())
+    G_loss = loss_fn(G_pred, torch.Tensor([[1.0]] * m))
+    print('loss =', G_loss.item())
 
-    (train_data, train_label) = next(iter(G_data_loader))
-    train_data, train_label = preprocess(train_data, train_label)
+    G_loss.backward()
+    G_optimizer.step()
 
     print('@@ Iteration(G)')
 
-    G_optimizer.zero_grad()
-
     for param in G.parameters():
         print(param)
-
-    # compute predicted Y
-    print('Computing Y...')
-    G_pred = D(train_data.float())
-
-    # compute loss (higher is better for G)
-    print('Computing loss...')
-    G_loss = loss_fn(G_pred, train_label.float())
-    print('loss =', G_loss.item())
-
-    print('Updating gradient...')
-    G_loss.backward()
-    G_optimizer.step()
 
     #######################################################
     #                     Write Image                     #
     #######################################################
 
-    print_img = Image.new('L', (image_w, image_h))
-    print_img.putdata(G(Z()).detach().numpy()*255)
-    print_img.save('output/G_'+str(idx).zfill(4)+'.png')
+    write_image = True
+    if write_image:
+        print_img = Image.new('L', (image_w, image_h))
+        print_img.putdata(G(Z()).detach().numpy()*255)
+        print_img.save('output/G_'+str(idx).zfill(4)+'.png')
 
     print('\n')
