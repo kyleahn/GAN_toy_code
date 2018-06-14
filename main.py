@@ -103,25 +103,12 @@ for idx in range(iteration):
 
     print('@ Iteration', idx)
 
-    # function that returns random noise (0 ~ 1)
-    def Z():
-        return torch.rand(image_h * image_w)
-
-
     # number of k (train D for k times in a row)
     k = 5
     # number of element in each dataset
     m = 64
 
-    # create fake data
-    print('Creating fake data...')
-    fake_data = []
-
-    for _ in range(k * m):
-        fake_data.append(G(Z()).tolist())
-
     real_data_loader = DataLoader(real_data, batch_size = m, shuffle = False, num_workers = 0)
-    fake_data_loader = DataLoader(fake_data, batch_size = m, shuffle = False, num_workers = 0)
 
     def preprocess(data):
         # list of tensor to 2-D tensor
@@ -140,46 +127,35 @@ for idx in range(iteration):
 
         D_optimizer.zero_grad()
         D_pred = D(train_data.float())
-        D_loss = loss_fn(D_pred, torch.Tensor([[1.0]]*m))
-        print('loss =', D_loss.item())
+        D_real_loss = loss_fn(D_pred, torch.Tensor([[1.0]]*m))
 
-        D_loss.backward()
-        D_optimizer.step()
+        D_real_loss.backward()
 
         # train with FAKE data
-        train_data = next(iter(fake_data_loader))
-        train_data = preprocess(train_data)
 
-        D_optimizer.zero_grad()
-        D_pred = D(train_data.float().detach())
-        D_loss = loss_fn(D_pred, torch.Tensor([[0.0]]*m))
-        print('loss =', D_loss.item())
+        D_pred = D(G(torch.rand(m, image_h * image_w)).detach())
+        D_fake_loss = loss_fn(D_pred, torch.Tensor([[0.0]]*m))
+        print('D_loss =', (D_fake_loss+D_real_loss).item())
 
-        D_loss.backward()
+        D_fake_loss.backward()
+
         D_optimizer.step()
 
+    print('\n')
     #######################################################
     #                      Train G                        #
     #######################################################
 
-    fake_data_loader = DataLoader(fake_data, batch_size = m, shuffle = False, num_workers = 0)
-
     # train with FAKE data
-    train_data = next(iter(fake_data_loader))
-    train_data = preprocess(train_data)
-
     G_optimizer.zero_grad()
-    G_pred = D(train_data.float())
+    G_pred = D(G(torch.rand(m, image_h * image_w)))
     G_loss = loss_fn(G_pred, torch.Tensor([[1.0]] * m))
-    print('loss =', G_loss.item())
+    print('G_loss =', G_loss.item())
 
     G_loss.backward()
     G_optimizer.step()
 
     print('@@ Iteration(G)')
-
-    for param in G.parameters():
-        print(param)
 
     #######################################################
     #                     Write Image                     #
@@ -188,7 +164,7 @@ for idx in range(iteration):
     write_image = True
     if write_image:
         print_img = Image.new('L', (image_w, image_h))
-        print_img.putdata(G(Z()).detach().numpy()*255)
+        print_img.putdata(G(torch.rand(image_h * image_w)).numpy()*255)
         print_img.save('output/G_'+str(idx).zfill(4)+'.png')
 
     print('\n')
