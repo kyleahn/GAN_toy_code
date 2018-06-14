@@ -123,17 +123,24 @@ for idx in range(iteration):
     m = 64
     D_data_loader = DataLoader(combined_data, batch_size = m, shuffle = True, num_workers = 0)
 
+    def preprocess(data, label):
+        # list of tensor to 2-D tensor
+        data = torch.stack(data)
+        label = torch.stack(label)
+        # convert axis
+        data = torch.from_numpy(np.swapaxes(data.numpy(), 0, 1).copy())
+        label = torch.from_numpy(np.swapaxes(label.numpy(), 0, 1).copy())
+        return data, label
+
+    #######################################################
+    #                      Train D                        #
+    #######################################################
+
     for d_idx, (train_data, train_label) in enumerate(D_data_loader):
         if k <= d_idx:
             break
 
-        # list of tensor to 2-D tensor
-        train_data = torch.stack(train_data)
-        train_label = torch.stack(train_label)
-
-        # convert axis
-        train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
-        train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
+        train_data, train_label = preprocess(train_data, train_label)
 
         print('@@ Iteration(D)', d_idx)
 
@@ -150,10 +157,11 @@ for idx in range(iteration):
 
         print('Updating gradient...')
         D_loss.backward()
-
         D_optimizer.step()
 
-        D_optimizer.zero_grad()
+    #######################################################
+    #                      Train G                        #
+    #######################################################
 
     # create fake data
     print('Creating fake data...')
@@ -165,21 +173,14 @@ for idx in range(iteration):
     G_data_loader = DataLoader(fake_data, batch_size=m, shuffle=False, num_workers=0)
 
     (train_data, train_label) = next(iter(G_data_loader))
-
-    # list of tensor to 2-D tensor
-    train_data = torch.stack(train_data)
-    train_label = torch.stack(train_label)
-
-    # convert axis
-    train_data = torch.from_numpy(np.swapaxes(train_data.numpy(), 0, 1).copy())
-    train_label = torch.from_numpy(np.swapaxes(train_label.numpy(), 0, 1).copy())
+    train_data, train_label = preprocess(train_data, train_label)
 
     print('@@ Iteration(G)')
 
-    #for param in G.parameters():
-    #    print(param)
-
     G_optimizer.zero_grad()
+
+    for param in G.parameters():
+        print(param)
 
     # compute predicted Y
     print('Computing Y...')
@@ -188,15 +189,15 @@ for idx in range(iteration):
     # compute loss (higher is better for G)
     print('Computing loss...')
     G_loss = loss_fn(G_pred, train_label.float())
-
     print('loss =', G_loss.item())
 
     print('Updating gradient...')
     G_loss.backward()
-
     G_optimizer.step()
 
-    G_optimizer.zero_grad()
+    #######################################################
+    #                     Write Image                     #
+    #######################################################
 
     print_img = Image.new('L', (image_w, image_h))
     print_img.putdata(G(Z()).detach().numpy()*255)
